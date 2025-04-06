@@ -1,0 +1,38 @@
+{
+  "name": "saas-nutricion-backend",
+  "version": "1.0.0",
+  "description": "Backend para un SaaS de Citas y Seguimiento Nutricional",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js",
+    "test": "jest --detectOpenHandles --forceExit --runInBand",
+    "seed": "node src/seeders/index.js"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "setupFilesAfterEnv": [
+      "./tests/setup.js"
+    ]
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.2",
+    "body-parser": "^1.19.0",
+    "cors": "^2.8.5",
+    "date-fns": "^4.1.0",
+    "dotenv": "^8.6.0",
+    "express": "^4.21.2",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "8.12.1"
+  },
+  "devDependencies": {
+    "cross-env": "^7.0.3",
+    "faker": "^5.5.3",
+    "jest": "^29.7.0",
+    "mongodb-memory-server": "^10.1.4",
+    "nodemon": "^2.0.4",
+    "supertest": "^7.0.0"
+  },
+  "author": "Tu Nombre",
+  "license": "MIT"
+}
