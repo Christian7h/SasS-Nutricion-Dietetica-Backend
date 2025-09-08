@@ -1,5 +1,6 @@
 const Appointment = require('../models/Appointment');
 const User = require('../models/User');
+const appointmentService = require('../services/appointmentService');
 
 // Crear una nueva cita
 exports.createAppointment = async (req, res) => {
@@ -20,6 +21,7 @@ exports.createAppointment = async (req, res) => {
             });
         }
 
+        // Crear la cita
         const newAppointment = await Appointment.createAppointment({
             date,
             time,
@@ -28,11 +30,35 @@ exports.createAppointment = async (req, res) => {
             notes
         });
 
-        res.status(201).json({ 
-            success: true,
-            message: 'Cita creada con éxito', 
-            appointment: newAppointment 
-        });
+        // Procesar servicios integrados (Google Calendar + Email)
+        try {
+            const serviceResult = await appointmentService.processNewAppointment(newAppointment);
+            
+            res.status(201).json({ 
+                success: true,
+                message: 'Cita creada con éxito', 
+                appointment: serviceResult.appointment,
+                integrations: {
+                    calendarCreated: serviceResult.calendarCreated,
+                    emailSent: serviceResult.emailSent,
+                    meetLink: serviceResult.meetLink
+                }
+            });
+        } catch (serviceError) {
+            console.error('Error en servicios integrados:', serviceError);
+            // La cita se creó, pero falló algún servicio
+            res.status(201).json({ 
+                success: true,
+                message: 'Cita creada con éxito, pero algunos servicios fallaron', 
+                appointment: newAppointment,
+                warning: serviceError.message,
+                integrations: {
+                    calendarCreated: false,
+                    emailSent: false
+                }
+            });
+        }
+
     } catch (error) {
         res.status(500).json({ 
             success: false,
@@ -110,29 +136,56 @@ exports.getAppointmentById = async (req, res) => {
 exports.updateAppointment = async (req, res) => {
     try {
         const { id } = req.params;
-        const { status } = req.body;
+        const updateData = req.body;
 
-        // Validar estado
-        if (status && !['scheduled', 'completed', 'cancelled'].includes(status)) {
+        // Validar estado si se proporciona
+        if (updateData.status && !['scheduled', 'completed', 'cancelled'].includes(updateData.status)) {
             return res.status(400).json({
                 success: false,
                 message: 'Estado no válido'
             });
         }
 
-        const appointment = await Appointment.updateAppointment(id, { status });
-
-        if (!appointment) {
+        // Obtener datos originales para comparar cambios
+        const originalAppointment = await Appointment.findById(id);
+        if (!originalAppointment) {
             return res.status(404).json({
                 success: false,
                 message: 'Cita no encontrada'
             });
         }
 
-        res.json({
-            success: true,
-            appointment
-        });
+        // Actualizar la cita
+        const appointment = await Appointment.updateAppointment(id, updateData);
+
+        // Procesar servicios integrados si hay cambios significativos
+        try {
+            const serviceResult = await appointmentService.processUpdatedAppointment(
+                appointment, 
+                originalAppointment
+            );
+
+            res.json({
+                success: true,
+                appointment,
+                integrations: {
+                    calendarUpdated: serviceResult.calendarUpdated || serviceResult.calendarCancelled,
+                    emailSent: serviceResult.emailSent
+                }
+            });
+        } catch (serviceError) {
+            console.error('Error en servicios integrados:', serviceError);
+            res.json({
+                success: true,
+                appointment,
+                warning: serviceError.message,
+                integrations: {
+                    calendarUpdated: false,
+                    emailSent: false
+                }
+            });
+        }
+
     } catch (error) {
         res.status(500).json({
             success: false,
@@ -145,20 +198,44 @@ exports.updateAppointment = async (req, res) => {
 // Cancelar una cita
 exports.cancelAppointment = async (req, res) => {
     try {
-        const canceledAppointment = await Appointment.cancelAppointment(req.params.id);
-
-        if (!canceledAppointment) {
+        // Obtener datos originales antes de cancelar
+        const originalAppointment = await Appointment.findById(req.params.id);
+        if (!originalAppointment) {
             return res.status(404).json({
                 success: false,
                 message: 'Cita no encontrada'
             });
         }
 
-        res.status(200).json({
-            success: true,
-            message: 'Cita cancelada con éxito',
-            appointment: canceledAppointment
-        });
+        const canceledAppointment = await Appointment.cancelAppointment(req.params.id);
+
+        // Procesar cancelación en servicios integrados
+        try {
+            const serviceResult = await appointmentService.processCancelledAppointment(canceledAppointment);
+
+            res.status(200).json({
+                success: true,
+                message: 'Cita cancelada con éxito',
+                appointment: canceledAppointment,
+                integrations: {
+                    calendarCancelled: serviceResult.calendarCancelled,
+                    emailSent: serviceResult.emailSent
+                }
+            });
+        } catch (serviceError) {
+            console.error('Error en servicios integrados:', serviceError);
+            res.status(200).json({
+                success: true,
+                message: 'Cita cancelada con éxito, pero algunos servicios fallaron',
+                appointment: canceledAppointment,
+                warning: serviceError.message,
+                integrations: {
+                    calendarCancelled: false,
+                    emailSent: false
+                }
+            });
+        }
+
     } catch (error) {
         res.status(500).json({
             success: false,
@@ -219,6 +296,90 @@ exports.getNutritionistSchedule = async (req, res) => {
         res.status(500).json({
             success: false,
             message: 'Error al obtener el horario',
+            error: error.message
+        });
+    }
+};
+
+// Obtener URL de autorización para Google Calendar
+exports.getGoogleAuthUrl = async (req, res) => {
+    try {
+        const authUrl = appointmentService.getGoogleAuthUrl();
+        res.json({
+            success: true,
+            authUrl
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            message: 'Error al obtener URL de autorización',
+            error: error.message
+        });
+    }
+};
+
+// Procesar código de autorización de Google
+exports.processGoogleAuth = async (req, res) => {
+    try {
+        const { code } = req.body;
+        
+        if (!code) {
+            return res.status(400).json({
+                success: false,
+                message: 'Código de autorización requerido'
+            });
+        }
+
+        const tokens = await appointmentService.processGoogleAuthCode(code);
+        
+        res.json({
+            success: true,
+            message: 'Autorización exitosa',
+            tokens: {
+                hasRefreshToken: !!tokens.refresh_token
+            }
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            message: 'Error al procesar autorización',
+            error: error.message
+        });
+    }
+};
+
+// Enviar recordatorios diarios
+exports.sendDailyReminders = async (req, res) => {
+    try {
+        const result = await appointmentService.sendDailyReminders();
+        
+        res.json({
+            success: true,
+            message: 'Recordatorios procesados',
+            ...result
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            message: 'Error al enviar recordatorios',
+            error: error.message
+        });
+    }
+};
+
+// Obtener estado de servicios integrados
+exports.getServiceStatus = async (req, res) => {
+    try {
+        const status = appointmentService.getServiceStatus();
+        
+        res.json({
+            success: true,
+            services: status
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            message: 'Error al obtener estado de servicios',
             error: error.message
         });
     }

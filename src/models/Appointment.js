@@ -27,6 +27,19 @@ const appointmentSchema = new mongoose.Schema({
     notes: {
         type: String
     },
+    googleCalendarEventId: {
+        type: String
+    },
+    googleCalendarEventLink: {
+        type: String
+    },
+    googleMeetLink: {
+        type: String
+    },
+    emailNotificationSent: {
+        type: Boolean,
+        default: false
+    },
     createdAt: {
         type: Date,
         default: Date.now
