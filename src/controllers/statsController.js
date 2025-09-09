@@ -53,6 +53,13 @@ exports.getDashboardStats = async (req, res) => {
                 count: { $sum: 1 }
             }}
         ]);
+        
+        //obtener link de reunion de google meet
+        const googleMeetLinks =  await Appointment.find({
+            nutritionistId,
+            googleMeetLink: { $ne: null }
+        }).select('googleMeetLink -_id');
+        
 
         res.json({
             success: true,
@@ -62,7 +69,8 @@ exports.getDashboardStats = async (req, res) => {
                 weekAppointments,
                 completedAppointments,
                 appointmentsByStatus,
-                recentAppointments
+                recentAppointments,
+                googleMeetLinks
             }
         });
     } catch (error) {
