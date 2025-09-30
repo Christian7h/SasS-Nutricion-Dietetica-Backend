@@ -26,7 +26,7 @@ const appointmentSchema = new mongoose.Schema({
     },
     type: {
         type: String,
-        enum: ['consultation', 'follow-up', 'evaluation'],
+        enum: ['consultation', 'follow-up', 'evaluation','control'],
         default: 'consultation'
     },
     reason: {
